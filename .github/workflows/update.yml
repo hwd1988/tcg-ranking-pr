@@ -28,8 +28,8 @@ jobs:
       - name: Generar clasificación
         env:
           LEADERBOARD_PERIOD: ${{ vars.LEADERBOARD_PERIOD }}
-          LEADERBOARD_REGION: NA
-          LEADERBOARD_REGION_TYPE: zone
+          LEADERBOARD_REGION: global
+          LEADERBOARD_REGION_TYPE: global
         run: python generate.py --output site/index.html
 
       - uses: actions/upload-pages-artifact@v3
