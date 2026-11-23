@@ -29,8 +29,8 @@ jobs:
       - name: Generar clasificación
         env:
           LEADERBOARD_PERIOD: ${{ vars.LEADERBOARD_PERIOD }}
-          LEADERBOARD_REGION: NA
-          LEADERBOARD_REGION_TYPE: zone
+          LEADERBOARD_REGION: PR
+          LEADERBOARD_REGION_TYPE: country
           COMPETITORS_JSON: ${{ secrets.COMPETITORS_JSON }}
         run: python generate.py --output site/index.html
 
