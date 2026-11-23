@@ -64,11 +64,10 @@ def fetch_division(division, period, region, region_type):
         count=int(body.get('count', len(rows)))
         if not batch or len(rows)>=count or len(batch)<PAGE_SIZE:
             break
-        page+=1
-        if page>100: raise ValueError('Límite de paginación excedido')
+        page += 1
         time.sleep(.4)
-    return rows
 
+    return rows
 
 def render(data):
     escaped=json.dumps(data, ensure_ascii=False).replace('<','\\u003c').replace('>','\\u003e').replace('&','\\u0026')
