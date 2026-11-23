@@ -25,17 +25,18 @@ jobs:
         with:
           python-version: '3.12'
 
+      
       - name: Generar clasificación
         env:
           LEADERBOARD_PERIOD: ${{ vars.LEADERBOARD_PERIOD }}
           LEADERBOARD_REGION: NA
-          LEADERBOARD_REGION_TYPE: Zone
+          LEADERBOARD_REGION_TYPE: zone
+          COMPETITORS_JSON: ${{ secrets.COMPETITORS_JSON }}
         run: python generate.py --output site/index.html
 
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
-
   deploy:
     environment:
       name: github-pages
