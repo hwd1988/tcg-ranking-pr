@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
-"""Discover publicly country-tagged Puerto Rico TCG competitors from Play LATAM rosters.
-
-This is a *candidate identity list*, not proof of participation in the current season.
-The ranking generator obtains points and ranking only from the Play! Pokemon API.
+"""Construye candidatos TCG Puerto Rico desde listas públicas con país explícito.
+No significa que todos tengan puntos en la temporada actual.
 """
 import json
 import re
@@ -10,7 +8,6 @@ import unicodedata
 import urllib.request
 from collections import defaultdict
 from pathlib import Path
-
 from bs4 import BeautifulSoup
 
 SOURCES = [
@@ -19,99 +16,86 @@ SOURCES = [
     ('Lima 2026 Masters', 'https://pairings.playlatam.net/roster/LIM26-TCG-MA', 'masters'),
 ]
 DIVISIONS = ('juniors', 'seniors', 'masters')
-
+DIVISION_HEADING = re.compile(r'^\s*(Junior|Senior|Master)s?\s+Division\s*$', re.I)
 
 def normalize(name):
-    s = unicodedata.normalize('NFKD', name)
+    s = unicodedata.normalize('NFKD', str(name))
     s = ''.join(c for c in s if not unicodedata.combining(c))
     return re.sub(r'\s+', ' ', re.sub(r'[^\w\s]', '', s)).casefold().strip()
-
 
 def full_name(name):
     tokens = name.strip().split()
     return len(tokens) >= 2 and all(len(part.strip('.')) >= 2 for part in tokens) and not any(part.endswith('.') for part in tokens)
 
-
 def extract(html, default_division=None):
     soup = BeautifulSoup(html, 'html.parser')
     found = []
     for tr in soup.find_all('tr'):
-        imgs = tr.find_all('img')
-        if not any((im.get('alt') or '').strip().casefold() == 'puerto rico' for im in imgs):
-            continue
+        # El marcador de división debe ser el texto de encabezado más cercano,
+        # no el primer h1-h4: en Play LATAM los encabezados varían de nivel.
         division = default_division
         if not division:
-            heading = tr.find_previous(lambda t: t.name in ('h1', 'h2', 'h3', 'h4')
-                                       and any(d[:-1] in t.get_text(' ', strip=True).casefold() for d in DIVISIONS))
+            heading = tr.find_previous(string=lambda x: bool(x and DIVISION_HEADING.fullmatch(x.strip())))
             if heading:
-                heading_text = heading.get_text(' ', strip=True).casefold()
-                division = next((d for d in DIVISIONS if d[:-1] in heading_text), None)
+                term = DIVISION_HEADING.fullmatch(str(heading).strip()).group(1).lower()
+                division = {'junior':'juniors','senior':'seniors','master':'masters'}[term]
         if division not in DIVISIONS:
             continue
         cells = tr.find_all('td', recursive=False)
         if len(cells) < 2:
             continue
+        if not any((im.get('alt') or '').strip().casefold() == 'puerto rico' for im in cells[1].find_all('img')):
+            continue
         text = cells[1].get_text(' ', strip=True)
         if ' - ' in text:
             nickname, canonical = text.rsplit(' - ', 1)
         else:
-            canonical = text
-            nickname = ''
-        canonical = canonical.strip()
-        nickname = nickname.strip()
-        # Partial names of minors (e.g. "Amaia M.") cannot safely be matched
-        # to the official leaderboard and are intentionally excluded.
+            nickname, canonical = '', text
+        canonical, nickname = canonical.strip(), nickname.strip()
+        # No atribuir nombres abreviados de menores a personas reales.
         if not full_name(canonical):
             continue
         found.append((division, canonical, nickname))
     return found
-
 
 def main():
     identities = {}
     success = []
     for label, url, division in SOURCES:
         try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (compatible; PKMNPR-TCG/1.0)'})
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                html = resp.read().decode('utf-8', 'replace')
+            req = urllib.request.Request(url, headers={'User-Agent':'Mozilla/5.0 (compatible; PKMNPR-TCG/1.1)'})
+            with urllib.request.urlopen(req, timeout=30) as response:
+                html = response.read().decode('utf-8', 'replace')
             players = extract(html, division)
             if not players:
-                raise ValueError('No se pudieron extraer registros identificados como Puerto Rico')
+                raise ValueError('No hay registros PR con nombre completo')
             for d, name, alias in players:
-                identities.setdefault((d, normalize(name)), {'division': d, 'name': name, 'aliases': set(), 'sources': set()})
-                row = identities[(d, normalize(name))]
-                row['sources'].add(url)
-                # Restrict aliases to distinctive IDs, not first names like "Alex".
+                key = (d, normalize(name))
+                entry = identities.setdefault(key, {'division':d, 'name':name, 'aliases':set()})
                 if alias and normalize(alias) != normalize(name) and len(normalize(alias)) >= 8 and ' ' not in alias:
-                    row['aliases'].add(alias)
+                    entry['aliases'].add(alias)
             success.append(label)
-            print(f'{label}: {len(players)} PR con nombres completos', flush=True)
+            print(f'{label}: {len(players)} registros de PR con nombre completo', flush=True)
         except Exception as exc:
             print(f'AVISO: fuente {label} no disponible ({type(exc).__name__})', flush=True)
     if not success:
-        raise RuntimeError('No fue posible verificar ninguna fuente de jugadores; se cancela publicación')
-    # Prevent nickname collisions within a division.
-    alias_owners = defaultdict(set)
-    for entry in identities.values():
+        raise RuntimeError('Ninguna fuente pudo verificarse; no se publica')
+    aliases = defaultdict(set)
+    for key, entry in identities.items():
         for alias in entry['aliases']:
-            alias_owners[(entry['division'], normalize(alias))].add(normalize(entry['name']))
-    reserved_names = {(d, key) for d, key in identities}
+            aliases[(entry['division'],normalize(alias))].add(key)
     players = []
-    for entry in identities.values():
-        aliases = sorted(alias for alias in entry['aliases']
-                         if len(alias_owners[(entry['division'], normalize(alias))]) == 1
-                         and (entry['division'], normalize(alias)) not in reserved_names)
-        players.append({'division': entry['division'], 'name': entry['name'], 'aliases': aliases})
-    players.sort(key=lambda p: (DIVISIONS.index(p['division']), normalize(p['name'])))
+    for key, entry in identities.items():
+        good = sorted(alias for alias in entry['aliases']
+                      if len(aliases[(entry['division'],normalize(alias))]) == 1
+                      and (entry['division'],normalize(alias)) not in identities)
+        players.append({'division':entry['division'], 'name':entry['name'], 'aliases':good})
+    players.sort(key=lambda x: (DIVISIONS.index(x['division']),normalize(x['name'])))
     if len(players) < 5:
-        raise RuntimeError('Extracción sospechosamente pequeña; no se publica')
-    result = {'players': players}
-    Path('verified_players.json').write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-    counts = {d: sum(p['division'] == d for p in players) for d in DIVISIONS}
-    print('Jugadores identificados por división (no implica CP activos):', counts, flush=True)
-    print('Fuente(s) usada(s):', ', '.join(success), flush=True)
-
+        raise RuntimeError('Lista sospechosamente pequeña; no se publica')
+    Path('verified_players.json').write_text(json.dumps({'players':players},ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+    print('Identificaciones por división:', {d:sum(x['division']==d for x in players) for d in DIVISIONS}, flush=True)
+    print('Fuentes verificadas:',', '.join(success),flush=True)
 
 if __name__ == '__main__':
     main()
