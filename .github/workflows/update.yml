@@ -25,18 +25,23 @@ jobs:
         with:
           python-version: '3.12'
 
-      
+      - name: Instalar dependencias
+        run: python -m pip install beautifulsoup4
+
+      - name: Buscar jugadores de Puerto Rico
+        run: python discover_players.py
+
       - name: Generar clasificación
         env:
           LEADERBOARD_PERIOD: ${{ vars.LEADERBOARD_PERIOD }}
-          LEADERBOARD_REGION: PR
-          LEADERBOARD_REGION_TYPE: country
-          COMPETITORS_JSON: ${{ secrets.COMPETITORS_JSON }}
+          LEADERBOARD_REGION: NA
+          LEADERBOARD_REGION_TYPE: zone
         run: python generate.py --output site/index.html
 
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
+
   deploy:
     environment:
       name: github-pages
